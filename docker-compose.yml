@@ -1,0 +1,35 @@
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-parqueadero}
+      POSTGRES_USER: ${POSTGRES_USER:-parqueadero}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Define POSTGRES_PASSWORD en .env}
+      TZ: ${TZ:-America/Bogota}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+
+  backend:
+    build: ./backend
+    environment:
+      TZ: ${TZ:-America/Bogota}
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  frontend:
+    profiles: ["frontend"]
+    build: ./frontend
+    ports:
+      - "127.0.0.1:5173:5173"
+
+volumes:
+  postgres_data:
