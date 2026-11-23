@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import accesos, auth
+from app.api import accesos, auth, carril
 
 app = FastAPI(title="MVP Parqueadero")
 app.add_middleware(
@@ -13,6 +13,8 @@ app.add_middleware(
 app.include_router(auth.router, prefix="/api/v1")
 app.include_router(accesos.admin, prefix="/api/v1")
 app.include_router(accesos.consultas, prefix="/api/v1")
+app.include_router(carril.router, prefix="/api/v1")
+app.include_router(carril.demo)
 
 
 @app.get("/health")

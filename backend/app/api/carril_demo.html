@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Demo del carril de entrada</title>
+  <style>
+    body { font: 1rem system-ui; max-width: 38rem; margin: 3rem auto; padding: 0 1rem; }
+    label { display: block; margin: .7rem 0; }
+    input { display: block; padding: .4rem; }
+    output { display: block; padding: .8rem; margin-top: 1rem; font-weight: 700; }
+    [data-estado=ABIERTA] { background: #dcfce7; color: #166534; }
+    [data-estado=PENDIENTE_VALIDACION] { background: #fef3c7; color: #78350f; }
+    [data-estado=CERRADA] { background: #fee2e2; color: #991b1b; }
+    #detalle { white-space: pre-wrap; overflow-wrap: anywhere; }
+  </style>
+</head>
+<body>
+  <h1>Carril de entrada</h1>
+  <form id="entrada">
+    <label>Token de operador <input id="token" type="password" autocomplete="off" required></label>
+    <label>Sede <input id="sede" type="number" min="1" max="2147483647" value="1" required></label>
+    <label>Imagen de la placa <input id="imagen" type="file" accept="image/png,image/jpeg"></label>
+    <fieldset id="simulador">
+      <legend>Lectura simulada</legend>
+      <label>Placa <input id="placa" value="ABC123" maxlength="80" required></label>
+      <label>Confianza <input id="confianza" type="number" min="0" max="1" step="any" value="0.95" required></label>
+    </fieldset>
+    <p><button>Registrar entrada</button></p>
+  </form>
+  <output id="barrera" data-estado="CERRADA" aria-live="polite">CERRADA</output>
+  <p id="detalle" aria-live="polite"></p>
+  <script>
+    const campo = (id) => document.getElementById(id);
+    const formulario = campo("entrada");
+    const boton = formulario.querySelector("button");
+    campo("imagen").addEventListener("change", () => {
+      campo("simulador").disabled = campo("imagen").files.length > 0;
+    });
+    function mostrar(estado, detalle) {
+      campo("barrera").dataset.estado = estado;
+      campo("barrera").textContent = estado.replaceAll("_", " ");
+      campo("detalle").textContent = detalle;
+    }
+    formulario.addEventListener("submit", async (evento) => {
+      evento.preventDefault();
+      boton.disabled = true;
+      mostrar("CERRADA", "Procesando lectura…");
+      const headers = { Authorization: "Bearer " + campo("token").value.trim() };
+      const sede = campo("sede").valueAsNumber;
+      const imagen = campo("imagen").files[0];
+      let ruta = "/api/v1/carril/entrada";
+      let body;
+      if (imagen) {
+        ruta += "/imagen";
+        body = new FormData();
+        body.append("imagen", imagen);
+        body.append("sede_id", sede);
+      } else {
+        headers["Content-Type"] = "application/json";
+        body = JSON.stringify({
+          placa: campo("placa").value, confianza: campo("confianza").valueAsNumber, sede_id: sede
+        });
+      }
+      try {
+        const respuesta = await fetch(ruta, { method: "POST", headers, body });
+        if (!respuesta.ok) {
+          const error = await respuesta.json().catch(() => ({}));
+          const detalle = typeof error.detail === "string" ? error.detail : "Revisa los datos";
+          mostrar("CERRADA", respuesta.status + " · " + detalle);
+          return;
+        }
+        const datos = await respuesta.json();
+        mostrar(datos.barrera, datos.motivo + " · " + datos.placa + " · Evento " + datos.evento_id);
+      } catch {
+        mostrar("CERRADA", "No se pudo comunicar con la API");
+      } finally {
+        boton.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>
