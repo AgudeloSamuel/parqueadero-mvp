@@ -19,6 +19,12 @@ services:
     build: ./backend
     environment:
       TZ: ${TZ:-America/Bogota}
+      DATABASE_URL: ${DATABASE_URL:-}
+      POSTGRES_HOST: db
+      POSTGRES_DB: ${POSTGRES_DB:-parqueadero}
+      POSTGRES_USER: ${POSTGRES_USER:-parqueadero}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Define POSTGRES_PASSWORD en .env}
+      JWT_SECRET: ${JWT_SECRET:-}
     ports:
       - "127.0.0.1:8000:8000"
     depends_on:
