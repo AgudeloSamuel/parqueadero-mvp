@@ -1,26 +1,24 @@
-import re
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Literal, Protocol
 
+from app.domain.vehiculo import Clasificador, normalizar_placa  # noqa: F401 (lectores.py la importa desde aquí)
 
 TipoVehiculo = Literal["CARRO", "MOTO"]
+
+_clasificador = Clasificador()
 
 
 class LecturaInvalida(ValueError):
     pass
 
 
-def normalizar_placa(placa: str) -> str:
-    return re.sub(r"[\s-]+", "", placa).upper()
-
-
 def clasificar_placa(placa: str) -> TipoVehiculo:
-    if re.fullmatch(r"[A-Z]{3}[0-9]{3}", placa):
-        return "CARRO"
-    if re.fullmatch(r"[A-Z]{3}[0-9]{2}[A-Z]", placa):
-        return "MOTO"
-    raise LecturaInvalida("Formato de placa inválido")
+    """Usa el Clasificador de la HU-03; si la placa no tiene un formato conocido, la lectura es inválida."""
+    tipo = _clasificador.clasificar(placa)
+    if tipo is None:
+        raise LecturaInvalida("Formato de placa inválido")
+    return tipo
 
 
 @dataclass(frozen=True)
