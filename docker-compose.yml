@@ -25,6 +25,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-parqueadero}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Define POSTGRES_PASSWORD en .env}
       JWT_SECRET: ${JWT_SECRET:-}
+      UMBRAL_CONFIANZA: ${UMBRAL_CONFIANZA:-0.80}
     ports:
       - "127.0.0.1:8000:8000"
     depends_on:
