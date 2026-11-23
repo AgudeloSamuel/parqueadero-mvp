@@ -1,4 +1,9 @@
 fastapi
 uvicorn
-httpx
+httpx2
 pytest
+bcrypt
+python-jose[cryptography]
+SQLAlchemy
+psycopg2-binary
+alembic
