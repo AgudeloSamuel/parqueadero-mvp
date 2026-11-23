@@ -33,7 +33,7 @@ class EventoEntrada:
     lectura: LecturaPlaca
     fecha_hora: datetime
     tipo_vehiculo: TipoVehiculo
-    barrera: Literal["ABIERTA", "PENDIENTE_VALIDACION"]
+    barrera: Literal["ABIERTA", "CERRADA", "PENDIENTE_VALIDACION"]
     motivo: str
 
 

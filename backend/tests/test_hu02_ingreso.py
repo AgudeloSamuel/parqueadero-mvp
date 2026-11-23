@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 from io import BytesIO
 from pathlib import Path
 from secrets import token_hex
+from zoneinfo import ZoneInfo
 
 import pytest
 from alembic import command
@@ -12,6 +13,7 @@ from PIL import Image, ImageDraw, ImageFont
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
+from app.api import carril
 from app.domain.usuario import Rol, Usuario
 from app.infrastructure import db, eventos
 from app.infrastructure.seguridad import emitir_token
@@ -19,6 +21,7 @@ from app.main import app
 
 RUTA = "/api/v1/carril/entrada"
 ENTRADA = {"placa": "ABC123", "confianza": 0.95, "sede_id": 1}
+HORA_ABIERTO = datetime(2026, 11, 23, 10, 0, tzinfo=ZoneInfo("America/Bogota"))
 
 
 @pytest.fixture
@@ -38,6 +41,7 @@ def motor(tmp_path, monkeypatch):
 def cliente(monkeypatch, motor):
     monkeypatch.setenv("JWT_SECRET", token_hex(32))
     monkeypatch.setenv("UMBRAL_CONFIANZA", "0.80")
+    monkeypatch.setattr(carril, "ahora_bogota", lambda: HORA_ABIERTO)
     token = emitir_token(Usuario("operador", "", Rol.OPERADOR))
     with TestClient(app, headers={"Authorization": f"Bearer {token}"}) as cliente:
         yield cliente

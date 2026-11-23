@@ -9,7 +9,12 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from app.api.dependencias import requiere_rol
-from app.application.registrar_ingreso import RegistrarIngreso, ResultadoIngreso, ValidarConfianza
+from app.application.registrar_ingreso import (
+    RegistrarIngreso,
+    ResultadoIngreso,
+    ValidarConfianza,
+    ValidarHorario,
+)
 from app.domain.ingreso import CobroEntrada, LecturaInvalida, TipoVehiculo
 from app.domain.usuario import Rol
 from app.infrastructure.eventos import guardar_entrada
@@ -35,7 +40,7 @@ class EntradaRegistrada(BaseModel):
     sede_id: int
     fecha_hora: datetime
     tipo_vehiculo: TipoVehiculo
-    barrera: Literal["ABIERTA", "PENDIENTE_VALIDACION"]
+    barrera: Literal["ABIERTA", "CERRADA", "PENDIENTE_VALIDACION"]
     motivo: str
     cobro: CobroEntrada | None = None
 
@@ -48,12 +53,19 @@ class CobroSimulado:
         return None
 
 
+def ahora_bogota() -> datetime:
+    return datetime.now(ZoneInfo("America/Bogota"))
+
+
 def obtener_registro() -> RegistrarIngreso:
     return RegistrarIngreso(
         guardar=guardar_entrada,
-        ahora=lambda: datetime.now(ZoneInfo("America/Bogota")),
+        ahora=ahora_bogota,
         cobros=CobroSimulado(),
-        validaciones=(ValidarConfianza(float(os.environ.get("UMBRAL_CONFIANZA", "0.80"))),),
+        validaciones=(
+            ValidarHorario(),
+            ValidarConfianza(float(os.environ.get("UMBRAL_CONFIANZA", "0.80"))),
+        ),
     )
 
 
