@@ -9,6 +9,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from app.api.dependencias import requiere_rol
+from app.application.generar_cobro import ServicioCobro
 from app.application.registrar_ingreso import (
     RegistrarIngreso,
     ResultadoIngreso,
@@ -16,7 +17,9 @@ from app.application.registrar_ingreso import (
     ValidarHorario,
 )
 from app.domain.ingreso import CobroEntrada, LecturaInvalida, TipoVehiculo
+from app.domain.tarifa import TarifaPorFranja
 from app.domain.usuario import Rol
+from app.infrastructure.cobros import ConsultaTarifasSQL, RepositorioCobrosSQL
 from app.infrastructure.eventos import guardar_entrada
 from app.infrastructure.lectores import FabricaLector, OCRNoDisponible
 
@@ -45,12 +48,13 @@ class EntradaRegistrada(BaseModel):
     cobro: CobroEntrada | None = None
 
 
-class CobroSimulado:
-    def generar_o_reutilizar(
-        self, placa: str, tipo: str, sede_id: int, fecha_hora: datetime
-    ) -> None:
-        """Deja el ingreso disponible mientras HU-04 implementa el cobro."""
-        return None
+def obtener_servicio_cobro() -> ServicioCobro:
+    """HU-04: cobro real. Cada tipo de vehículo tiene su estrategia de tarifa (Strategy)."""
+    por_franja = TarifaPorFranja(ConsultaTarifasSQL())
+    return ServicioCobro(
+        repositorio=RepositorioCobrosSQL(),
+        estrategias={"CARRO": por_franja, "MOTO": por_franja},
+    )
 
 
 def ahora_bogota() -> datetime:
@@ -61,7 +65,7 @@ def obtener_registro() -> RegistrarIngreso:
     return RegistrarIngreso(
         guardar=guardar_entrada,
         ahora=ahora_bogota,
-        cobros=CobroSimulado(),
+        cobros=obtener_servicio_cobro(),
         validaciones=(
             ValidarHorario(),
             ValidarConfianza(float(os.environ.get("UMBRAL_CONFIANZA", "0.80"))),
