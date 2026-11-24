@@ -11,6 +11,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
 from app.api import carril
+from app.application.generar_cobro import ServicioCobro
 from app.application.registrar_ingreso import Decision, ValidarHorario
 from app.domain.ingreso import LecturaPlaca
 from app.domain.usuario import Rol, Usuario
@@ -74,7 +75,7 @@ def test_ingreso_con_parqueadero_cerrado(cliente, motor, monkeypatch):
     def fallar_si_genera_cobro(*args):
         pytest.fail("Un ingreso fuera de horario no debe llamar al servicio de cobro")
 
-    monkeypatch.setattr(carril.CobroSimulado, "generar_o_reutilizar", fallar_si_genera_cobro)
+    monkeypatch.setattr(ServicioCobro, "generar_o_reutilizar", fallar_si_genera_cobro)
 
     respuesta = cliente.post(RUTA, json={"placa": "ABC123", "confianza": 0.95, "sede_id": 1})
 
