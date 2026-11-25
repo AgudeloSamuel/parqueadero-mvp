@@ -67,6 +67,21 @@ class CobroDB(Base):
     valor: Mapped[int]
     estado: Mapped[str] = mapped_column(String(12))
     creado_en: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    
+class PagoDB(Base):
+    __tablename__ = "pagos"
+    __table_args__ = (
+        CheckConstraint("valor >= 0", name="ck_pagos_valor"),
+        UniqueConstraint("cobro_id", name="uq_pagos_cobro"),
+        UniqueConstraint("clave_idempotencia", name="uq_pagos_clave"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    cobro_id: Mapped[int] = mapped_column(ForeignKey("cobros.id"))
+    valor: Mapped[int]
+    clave_idempotencia: Mapped[str] = mapped_column(String(100))
+    fecha_hora: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
 
 class UsuarioDB(Base):
     __tablename__ = "usuarios"

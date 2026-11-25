@@ -38,6 +38,11 @@ class RepositorioCobrosSQL:
             ).first()
             return None if fila is None else _a_dominio(fila)
 
+    def por_id(self, cobro_id: int) -> Cobro | None:
+        with Session(db.motor_db()) as sesion:
+            fila = sesion.get(db.CobroDB, cobro_id)
+            return None if fila is None else _a_dominio(fila)
+
     def guardar(self, cobro: Cobro) -> Cobro:
         try:
             with Session(db.motor_db()) as sesion, sesion.begin():
@@ -63,6 +68,7 @@ class RepositorioCobrosSQL:
 
 
 class ConsultaTarifasSQL:
+    """Solo lectura. En el MVP las tarifas son las mismas para todas las sedes."""
 
     def vigente(self, sede_id: int, tipo: str, franja: str) -> Tarifa:
         with Session(db.motor_db()) as sesion:
