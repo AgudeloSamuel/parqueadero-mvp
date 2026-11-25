@@ -49,7 +49,7 @@ class Pagado(EstadoCobro):
 
 class Anulado(EstadoCobro):
     nombre = "ANULADO"
-    permite_salida = True
+    permite_salida = False
 
     def pagar(self) -> EstadoCobro:
         raise CobroAnulado("El cobro está anulado")

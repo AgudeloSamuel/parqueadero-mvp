@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Demo del carril de entrada</title>
+  <title>Demo del carril</title>
   <style>
     body { font: 1rem system-ui; max-width: 38rem; margin: 3rem auto; padding: 0 1rem; }
     label { display: block; margin: .7rem 0; }
@@ -13,11 +13,18 @@
     [data-estado=PENDIENTE_VALIDACION] { background: #fef3c7; color: #78350f; }
     [data-estado=CERRADA] { background: #fee2e2; color: #991b1b; }
     #detalle { white-space: pre-wrap; overflow-wrap: anywhere; }
+    [data-estado=CERRADA] + #detalle { color: #991b1b; }
   </style>
 </head>
 <body>
-  <h1>Carril de entrada</h1>
+  <h1>Carril de entrada y salida</h1>
   <form id="entrada">
+    <label>Movimiento
+      <select id="movimiento">
+        <option value="entrada">Entrada</option>
+        <option value="salida">Salida</option>
+      </select>
+    </label>
     <label>Token de operador <input id="token" type="password" autocomplete="off" required></label>
     <label>Sede <input id="sede" type="number" min="1" max="2147483647" value="1" required></label>
     <label>Imagen de la placa <input id="imagen" type="file" accept="image/png,image/jpeg"></label>
@@ -34,9 +41,15 @@
     const campo = (id) => document.getElementById(id);
     const formulario = campo("entrada");
     const boton = formulario.querySelector("button");
-    campo("imagen").addEventListener("change", () => {
-      campo("simulador").disabled = campo("imagen").files.length > 0;
-    });
+    function configurarFormulario() {
+      const salida = campo("movimiento").value === "salida";
+      campo("imagen").disabled = salida;
+      campo("simulador").disabled = !salida && campo("imagen").files.length > 0;
+      campo("confianza").disabled = salida;
+      boton.textContent = salida ? "Registrar salida" : "Registrar entrada";
+    }
+    campo("movimiento").addEventListener("change", configurarFormulario);
+    campo("imagen").addEventListener("change", configurarFormulario);
     function mostrar(estado, detalle) {
       campo("barrera").dataset.estado = estado;
       campo("barrera").textContent = estado.replaceAll("_", " ");
@@ -48,8 +61,9 @@
       mostrar("CERRADA", "Procesando lectura…");
       const headers = { Authorization: "Bearer " + campo("token").value.trim() };
       const sede = campo("sede").valueAsNumber;
-      const imagen = campo("imagen").files[0];
-      let ruta = "/api/v1/carril/entrada";
+      const movimiento = campo("movimiento").value;
+      const imagen = movimiento === "entrada" ? campo("imagen").files[0] : undefined;
+      let ruta = "/api/v1/carril/" + movimiento;
       let body;
       if (imagen) {
         ruta += "/imagen";
@@ -58,9 +72,9 @@
         body.append("sede_id", sede);
       } else {
         headers["Content-Type"] = "application/json";
-        body = JSON.stringify({
-          placa: campo("placa").value, confianza: campo("confianza").valueAsNumber, sede_id: sede
-        });
+        const datos = { placa: campo("placa").value, sede_id: sede };
+        if (movimiento === "entrada") datos.confianza = campo("confianza").valueAsNumber;
+        body = JSON.stringify(datos);
       }
       try {
         const respuesta = await fetch(ruta, { method: "POST", headers, body });

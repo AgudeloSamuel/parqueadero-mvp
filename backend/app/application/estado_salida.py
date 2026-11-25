@@ -33,8 +33,8 @@ class ConsultaSalida:
         cobro = self.cobros.buscar_del_dia(placa, sede_id, dia)
         if cobro is None:
             return True, "Sin cobro"
+        if cobro.estado == "ANULADO":
+            return False, "Cobro anulado"
         if not cobro.ciclo.permite_salida:
             return False, f"Pago pendiente: {formato_pesos(cobro.valor)}"
-        if cobro.estado == "ANULADO":
-            return True, "Cobro anulado"
         return True, "Pago verificado"

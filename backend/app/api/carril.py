@@ -9,6 +9,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from app.api.dependencias import requiere_rol
+from app.application.estado_salida import ConsultaSalida
 from app.application.generar_cobro import ServicioCobro
 from app.application.registrar_ingreso import (
     RegistrarIngreso,
@@ -16,11 +17,13 @@ from app.application.registrar_ingreso import (
     ValidarConfianza,
     ValidarHorario,
 )
+from app.application.registrar_salida import RegistrarSalida
 from app.domain.ingreso import CobroEntrada, LecturaInvalida, TipoVehiculo
 from app.domain.tarifa import TarifaPorFranja
 from app.domain.usuario import Rol
 from app.infrastructure.cobros import ConsultaTarifasSQL, RepositorioCobrosSQL
-from app.infrastructure.eventos import guardar_entrada
+from app.infrastructure.entradas import ultima_entrada_sin_salida
+from app.infrastructure.eventos import guardar_entrada, guardar_salida
 from app.infrastructure.lectores import FabricaLector, OCRNoDisponible
 
 router = APIRouter(prefix="/carril", tags=["Carril"])
@@ -46,6 +49,22 @@ class EntradaRegistrada(BaseModel):
     barrera: Literal["ABIERTA", "CERRADA", "PENDIENTE_VALIDACION"]
     motivo: str
     cobro: CobroEntrada | None = None
+
+
+class SolicitudSalida(BaseModel):
+    placa: str = Field(min_length=1, max_length=80)
+    sede_id: int = Field(gt=0, le=2_147_483_647)
+
+
+class SalidaRegistrada(BaseModel):
+    evento_id: int
+    tipo_evento: Literal["SALIDA"] = "SALIDA"
+    placa: str
+    sede_id: int
+    fecha_hora: datetime
+    tipo_vehiculo: TipoVehiculo
+    barrera: Literal["ABIERTA", "CERRADA"]
+    motivo: str
 
 
 def obtener_servicio_cobro() -> ServicioCobro:
@@ -74,6 +93,34 @@ def obtener_registro() -> RegistrarIngreso:
 
 
 Registro = Annotated[RegistrarIngreso, Depends(obtener_registro)]
+
+
+def obtener_registro_salida() -> RegistrarSalida:
+    return RegistrarSalida(
+        ConsultaSalida(RepositorioCobrosSQL(), ultima_entrada_sin_salida),
+        guardar_salida,
+        ahora_bogota,
+    )
+
+
+@router.post("/salida", status_code=201, dependencies=operador)
+def registrar_salida(
+    datos: SolicitudSalida,
+    registro: Annotated[RegistrarSalida, Depends(obtener_registro_salida)],
+) -> SalidaRegistrada:
+    try:
+        evento_id, evento = registro.ejecutar(datos.placa, datos.sede_id)
+    except LecturaInvalida as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return SalidaRegistrada(
+        evento_id=evento_id,
+        placa=evento.placa,
+        sede_id=evento.sede_id,
+        fecha_hora=evento.fecha_hora,
+        tipo_vehiculo=evento.tipo_vehiculo,
+        barrera=evento.barrera,
+        motivo=evento.motivo,
+    )
 
 
 def respuesta(resultado: ResultadoIngreso) -> EntradaRegistrada:
