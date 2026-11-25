@@ -1,14 +1,23 @@
-import csv
 import io
-import subprocess
+import os
+from functools import lru_cache
+from threading import Lock
 from typing import Literal, overload
 
-from PIL import Image, UnidentifiedImageError
+from PIL import Image, ImageOps
 
-from app.domain.ingreso import LecturaInvalida, LecturaPlaca, normalizar_placa
+from app.domain.ingreso import LecturaInvalida, LecturaPlaca
+from app.domain.vehiculo import Clasificador, normalizar_placa
+
+_candado_ocr = Lock()
+_clasificador = Clasificador()
 
 
 class OCRNoDisponible(RuntimeError):
+    pass
+
+
+class LectorCamaraDesactivado(ValueError):
     pass
 
 
@@ -17,39 +26,45 @@ class LectorSimulado:
         return LecturaPlaca(normalizar_placa(placa), confianza, sede_id)
 
 
+@lru_cache(maxsize=1)
+def motor_easyocr():
+    from easyocr import Reader
+
+    return Reader(["en"], gpu=False, verbose=False)
+
+
 class LectorOCR:
     def leer(self, imagen: bytes, sede_id: int) -> LecturaPlaca:
         try:
             with Image.open(io.BytesIO(imagen), formats=["PNG", "JPEG"]) as archivo:
                 if archivo.width * archivo.height > 12_000_000:
                     raise LecturaInvalida("La imagen supera los 12 megapíxeles")
-                archivo.verify()
-        except (UnidentifiedImageError, OSError, SyntaxError, Image.DecompressionBombError) as exc:
+                orientada = ImageOps.exif_transpose(archivo).convert("RGB")
+                orientada.thumbnail((1920, 1920))
+                contenido = io.BytesIO()
+                orientada.save(contenido, format="PNG")
+        except (OSError, SyntaxError, Image.DecompressionBombError) as exc:
             raise LecturaInvalida("La imagen debe ser un PNG o JPEG válido") from exc
 
         try:
-            resultado = subprocess.run(
-                ["tesseract", "stdin", "stdout", "-l", "eng", "--psm", "7", "tsv"],
-                input=imagen,
-                capture_output=True,
-                check=True,
-                timeout=10,
-            )
-        except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
-            raise OCRNoDisponible("El lector de imágenes no está disponible") from exc
-        except subprocess.CalledProcessError as exc:
-            raise LecturaInvalida("No se pudo leer la imagen") from exc
+            with _candado_ocr:
+                lecturas = motor_easyocr().readtext(
+                    contenido.getvalue(),
+                    allowlist="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 -",
+                )
+        except (ImportError, OSError, RuntimeError) as exc:
+            raise OCRNoDisponible("EasyOCR no está disponible") from exc
 
-        filas = csv.DictReader(io.StringIO(resultado.stdout.decode("utf-8")), delimiter="\t")
-        palabras = [
-            (fila["text"], float(fila["conf"]))
-            for fila in filas
-            if fila["level"] == "5" and fila["text"] and fila["text"].strip()
+        candidatos = [
+            (normalizar_placa(texto), float(confianza))
+            for _, texto, confianza in lecturas
         ]
-        if not palabras:
-            raise LecturaInvalida("No se pudo leer una placa en la imagen")
-        placa = normalizar_placa("".join(texto for texto, _ in palabras))
-        confianza = min(puntaje for _, puntaje in palabras) / 100
+        aptos = (
+            (placa, confianza)
+            for placa, confianza in candidatos
+            if _clasificador.clasificar(placa) is not None and 0 <= confianza <= 1
+        )
+        placa, confianza = max(aptos, key=lambda lectura: lectura[1], default=(None, 0.0))
         return LecturaPlaca(placa, confianza, sede_id)
 
 
@@ -60,9 +75,26 @@ class FabricaLector:
 
     @overload
     @staticmethod
-    def crear(origen: Literal["imagen"]) -> LectorOCR: ...
+    def crear(origen: Literal["camara"]) -> LectorOCR: ...
+
+    @overload
+    @staticmethod
+    def crear(origen: None = None) -> LectorSimulado | LectorOCR: ...
 
     @staticmethod
-    def crear(origen: Literal["simulador", "imagen"]) -> LectorSimulado | LectorOCR:
-        lectores = {"simulador": LectorSimulado, "imagen": LectorOCR}
-        return lectores[origen]()
+    def crear(origen: Literal["simulador", "camara"] | None = None) -> LectorSimulado | LectorOCR:
+        modo = origen or os.environ.get("LECTOR_PLACAS", "camara")
+        if modo == "simulador":
+            return LectorSimulado()
+        if modo == "camara":
+            return LectorOCR()
+        raise OCRNoDisponible("LECTOR_PLACAS debe ser camara o simulador")
+
+    @staticmethod
+    def para_imagen() -> LectorOCR:
+        lector = FabricaLector.crear()
+        if isinstance(lector, LectorSimulado):
+            raise LectorCamaraDesactivado(
+                "El lector está en modo simulador. Usa POST /api/v1/carril/entrada."
+            )
+        return lector

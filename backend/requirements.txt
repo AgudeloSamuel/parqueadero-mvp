@@ -10,3 +10,4 @@ alembic
 python-multipart
 Pillow
 tzdata
+easyocr==1.7.2

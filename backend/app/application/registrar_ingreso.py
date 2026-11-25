@@ -34,7 +34,7 @@ class ValidarConfianza:
         self.umbral = umbral
 
     def __call__(self, lectura: LecturaPlaca, fecha_hora: datetime) -> Decision | None:
-        if lectura.confianza < self.umbral:
+        if lectura.placa is not None and lectura.confianza < self.umbral:
             return Decision("PENDIENTE_VALIDACION", "Confianza insuficiente")
         return None
 
@@ -60,13 +60,14 @@ class RegistrarIngreso:
         self.validaciones = validaciones
 
     def ejecutar(self, lectura: LecturaPlaca) -> ResultadoIngreso:
-        tipo = clasificar_placa(lectura.placa)
+        placa = lectura.placa
+        tipo = clasificar_placa(placa) if placa is not None else None
         fecha_hora = self.ahora()
         decision = self._evaluar(lectura, fecha_hora)
         cobro = None
-        if decision.barrera == "ABIERTA":
+        if decision.barrera == "ABIERTA" and placa is not None and tipo is not None:
             cobro = self.cobros.generar_o_reutilizar(
-                lectura.placa, tipo, lectura.sede_id, fecha_hora
+                placa, tipo, lectura.sede_id, fecha_hora
             )
         evento = EventoEntrada(lectura, fecha_hora, tipo, decision.barrera, decision.motivo)
         return ResultadoIngreso(self.guardar(evento), evento, cobro)
@@ -76,4 +77,6 @@ class RegistrarIngreso:
             decision = validar(lectura, fecha_hora)
             if decision is not None:
                 return decision
+        if lectura.placa is None:
+            return Decision("PENDIENTE_VALIDACION", "No se encontró una placa válida en la imagen")
         return Decision("ABIERTA", "Ingreso registrado")
