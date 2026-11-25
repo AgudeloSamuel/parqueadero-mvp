@@ -24,7 +24,7 @@ from app.domain.usuario import Rol
 from app.infrastructure.cobros import ConsultaTarifasSQL, RepositorioCobrosSQL
 from app.infrastructure.entradas import ultima_entrada_sin_salida
 from app.infrastructure.eventos import guardar_entrada, guardar_salida
-from app.infrastructure.lectores import FabricaLector, OCRNoDisponible
+from app.infrastructure.lectores import FabricaLector, LectorCamaraDesactivado, OCRNoDisponible
 
 router = APIRouter(prefix="/carril", tags=["Carril"])
 demo = APIRouter()
@@ -41,11 +41,11 @@ class EntradaSimulada(BaseModel):
 class EntradaRegistrada(BaseModel):
     evento_id: int
     tipo_evento: Literal["ENTRADA"] = "ENTRADA"
-    placa: str
+    placa: str | None
     confianza: float
     sede_id: int
     fecha_hora: datetime
-    tipo_vehiculo: TipoVehiculo
+    tipo_vehiculo: TipoVehiculo | None
     barrera: Literal["ABIERTA", "CERRADA", "PENDIENTE_VALIDACION"]
     motivo: str
     cobro: CobroEntrada | None = None
@@ -147,9 +147,7 @@ def entrada_simulada(datos: EntradaSimulada, registro: Registro) -> EntradaRegis
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
-@router.post(
-    "/entrada/imagen", status_code=201, dependencies=operador, response_model_exclude_none=True
-)
+@router.post("/entrada/imagen", status_code=201, dependencies=operador)
 def entrada_imagen(
     imagen: Annotated[UploadFile, File()],
     sede_id: Annotated[int, Form(gt=0, le=2_147_483_647)],
@@ -159,10 +157,12 @@ def entrada_imagen(
     if len(contenido) > MAX_IMAGEN:
         raise HTTPException(status_code=413, detail="La imagen supera los 5 MiB")
     try:
-        lector = FabricaLector.crear("imagen")
+        lector = FabricaLector.para_imagen()
         return respuesta(registro.ejecutar(lector.leer(contenido, sede_id)))
     except LecturaInvalida as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except LectorCamaraDesactivado as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except OCRNoDisponible as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 

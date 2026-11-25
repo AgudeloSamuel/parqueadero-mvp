@@ -23,7 +23,7 @@ def clasificar_placa(placa: str) -> TipoVehiculo:
 
 @dataclass(frozen=True)
 class LecturaPlaca:
-    placa: str
+    placa: str | None
     confianza: float
     sede_id: int
 
@@ -32,7 +32,7 @@ class LecturaPlaca:
 class EventoEntrada:
     lectura: LecturaPlaca
     fecha_hora: datetime
-    tipo_vehiculo: TipoVehiculo
+    tipo_vehiculo: TipoVehiculo | None
     barrera: Literal["ABIERTA", "CERRADA", "PENDIENTE_VALIDACION"]
     motivo: str
 

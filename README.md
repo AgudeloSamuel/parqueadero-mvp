@@ -81,7 +81,7 @@ copia el `access_token` y pégalo en **Authorize**.
 | Normalización | Envía `{"placa":" abc-123 ","confianza":0.95,"sede_id":1}` | Se guarda `ABC123`. |
 | Placa inválida | Envía `{"placa":"AB-12","confianza":0.95,"sede_id":1}` | `422` con `Formato de placa inválido`, sin guardar un evento. |
 | Fuera de rango | Envía la lectura válida con `confianza: 1.1` | `422`, sin guardar un evento. |
-| Lectura de imagen | En `POST /api/v1/carril/entrada/imagen`, sube un PNG o JPEG recortado a la placa y completa `sede_id`. | Tesseract extrae la placa y su confianza entre 0 y 1. |
+| Lectura de imagen | En `POST /api/v1/carril/entrada/imagen`, sube un PNG o JPEG y completa `sede_id` con `LECTOR_PLACAS=camara`. | EasyOCR extrae la placa y su confianza entre 0 y 1. |
 
 Para ver la **barrera verde**, abre <http://localhost:8000/demo/carril>,
 pega el token de operador y registra la lectura precargada. Esta vista también
@@ -95,3 +95,33 @@ el usuario y la base de tu `.env` cuando sean distintos:
 ```powershell
 docker compose exec db psql -U parqueadero -d parqueadero -c 'SELECT id, tipo, placa, fecha_hora, sede_id, confianza, barrera FROM eventos ORDER BY id;'
 ```
+
+## HU-13. Capturar la placa con la webcam
+
+Configura `LECTOR_PLACAS=camara` en `.env`, reconstruye el backend y aplica
+la migración. La primera lectura descarga los modelos de EasyOCR. Docker los
+mantiene en el volumen `easyocr_modelos`.
+
+```powershell
+docker compose up --build -d
+docker compose exec backend alembic upgrade head
+docker compose exec backend python -m pytest -v tests/test_hu13_camara.py
+```
+
+Si tu base está en el proyecto `parqueadero-hu01`, agrega
+`-p parqueadero-hu01` después de `docker compose` en esos comandos.
+
+En <http://localhost:8000/demo/carril>, selecciona **Entrada**, pega un token
+de operador, elige la sede, pulsa **Activar cámara** y concede permiso al
+navegador. Acerca una placa de prueba a la webcam y pulsa **Capturar placa**.
+La captura se envía a `POST /api/v1/carril/entrada/imagen`.
+
+Dentro del horario de ingreso, una imagen sin placa válida crea un evento
+con `placa: null`, `confianza: 0` y barrera `PENDIENTE_VALIDACION`. Una placa
+válida con confianza inferior a `UMBRAL_CONFIANZA` queda en ese mismo estado
+y conserva la placa detectada. Esos eventos quedan disponibles para el
+flujo de validación manual de HU-07.
+
+Con `LECTOR_PLACAS=simulador`, usa el formulario de lectura simulada o
+`POST /api/v1/carril/entrada` con un JSON. La ruta de imagen devuelve
+`409` en ese modo. Reaplica Compose después de cambiar la variable en `.env`.

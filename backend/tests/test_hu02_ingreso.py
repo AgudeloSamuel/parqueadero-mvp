@@ -1,6 +1,4 @@
-import shutil
 from datetime import datetime, timedelta
-from io import BytesIO
 from pathlib import Path
 from secrets import token_hex
 from zoneinfo import ZoneInfo
@@ -9,7 +7,6 @@ import pytest
 from alembic import command
 from alembic.config import Config
 from fastapi.testclient import TestClient
-from PIL import Image, ImageDraw, ImageFont
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
@@ -39,6 +36,7 @@ def motor(tmp_path, monkeypatch):
 
 @pytest.fixture
 def cliente(monkeypatch, motor):
+    monkeypatch.setenv("LECTOR_PLACAS", "camara")
     monkeypatch.setenv("JWT_SECRET", token_hex(32))
     monkeypatch.setenv("UMBRAL_CONFIANZA", "0.80")
     monkeypatch.setattr(carril, "ahora_bogota", lambda: HORA_ABIERTO)
@@ -121,26 +119,3 @@ def test_imagen_invalida_no_crea_evento(cliente, motor):
     )
     assert respuesta.status_code == 422
     assert filas_eventos(motor) == []
-
-
-@pytest.mark.skipif(shutil.which("tesseract") is None, reason="Tesseract se instala en Docker")
-def test_lee_placa_desde_imagen_y_guarda_confianza(cliente, motor):
-    imagen = Image.new("RGB", (520, 150), "white")
-    ImageDraw.Draw(imagen).text(
-        (35, 30), "ABC123", fill="black", font=ImageFont.load_default(size=80)
-    )
-    contenido = BytesIO()
-    imagen.save(contenido, format="PNG")
-
-    respuesta = cliente.post(
-        f"{RUTA}/imagen",
-        data={"sede_id": 3},
-        files={"imagen": ("foto.png", contenido.getvalue(), "image/png")},
-    )
-
-    assert respuesta.status_code == 201, respuesta.text
-    lectura = respuesta.json()
-    assert lectura["placa"] == "ABC123"
-    assert 0 <= lectura["confianza"] <= 1
-    evento, = filas_eventos(motor)
-    assert (evento.placa, evento.sede_id, evento.confianza) == ("ABC123", 3, lectura["confianza"])

@@ -30,11 +30,11 @@ class EventoDB(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     tipo: Mapped[str] = mapped_column(String(16))
-    placa: Mapped[str] = mapped_column(String(20))
+    placa: Mapped[str | None] = mapped_column(String(20))
     confianza: Mapped[float] = mapped_column(Float)
     sede_id: Mapped[int]
     fecha_hora: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    tipo_vehiculo: Mapped[str] = mapped_column(String(12))
+    tipo_vehiculo: Mapped[str | None] = mapped_column(String(12))
     barrera: Mapped[str] = mapped_column(String(24))
     motivo: Mapped[str] = mapped_column(String(160))
 class TarifaDB(Base):

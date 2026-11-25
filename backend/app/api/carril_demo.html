@@ -8,6 +8,8 @@
     body { font: 1rem system-ui; max-width: 38rem; margin: 3rem auto; padding: 0 1rem; }
     label { display: block; margin: .7rem 0; }
     input { display: block; padding: .4rem; }
+    video { display: block; width: 100%; max-height: 22rem; background: #111827; margin: .6rem 0; }
+    [hidden] { display: none; }
     output { display: block; padding: .8rem; margin-top: 1rem; font-weight: 700; }
     [data-estado=ABIERTA] { background: #dcfce7; color: #166534; }
     [data-estado=PENDIENTE_VALIDACION] { background: #fef3c7; color: #78350f; }
@@ -27,22 +29,45 @@
     </label>
     <label>Token de operador <input id="token" type="password" autocomplete="off" required></label>
     <label>Sede <input id="sede" type="number" min="1" max="2147483647" value="1" required></label>
+    <section id="camara">
+      <button id="activar" type="button">Activar cámara</button>
+      <video id="vista" aria-label="Vista en vivo de la webcam" autoplay muted playsinline hidden></video>
+      <button id="capturar" type="button" disabled>Capturar placa</button>
+    </section>
     <label>Imagen de la placa <input id="imagen" type="file" accept="image/png,image/jpeg"></label>
     <fieldset id="simulador">
       <legend>Lectura simulada</legend>
       <label>Placa <input id="placa" value="ABC123" maxlength="80" required></label>
       <label>Confianza <input id="confianza" type="number" min="0" max="1" step="any" value="0.95" required></label>
     </fieldset>
-    <p><button>Registrar entrada</button></p>
+    <p><button id="registrar">Registrar entrada</button></p>
   </form>
   <output id="barrera" data-estado="CERRADA" aria-live="polite">CERRADA</output>
   <p id="detalle" aria-live="polite"></p>
   <script>
     const campo = (id) => document.getElementById(id);
     const formulario = campo("entrada");
-    const boton = formulario.querySelector("button");
+    const boton = campo("registrar");
+    const vista = campo("vista");
+    const activar = campo("activar");
+    const capturar = campo("capturar");
+    let flujo;
+    let procesando = false;
+    let habilitandoCamara = false;
+
+    function detenerCamara() {
+      flujo?.getTracks().forEach((pista) => pista.stop());
+      flujo = undefined;
+      vista.srcObject = null;
+      vista.hidden = true;
+      activar.textContent = "Activar cámara";
+      capturar.disabled = true;
+    }
+
     function configurarFormulario() {
       const salida = campo("movimiento").value === "salida";
+      campo("camara").hidden = salida;
+      if (salida) detenerCamara();
       campo("imagen").disabled = salida;
       campo("simulador").disabled = !salida && campo("imagen").files.length > 0;
       campo("confianza").disabled = salida;
@@ -50,32 +75,66 @@
     }
     campo("movimiento").addEventListener("change", configurarFormulario);
     campo("imagen").addEventListener("change", configurarFormulario);
+    window.addEventListener("pagehide", detenerCamara);
+    activar.addEventListener("click", async () => {
+      if (flujo) {
+        detenerCamara();
+        return;
+      }
+      if (!navigator.mediaDevices?.getUserMedia) {
+        mostrar("CERRADA", "La cámara requiere localhost o HTTPS y un navegador compatible");
+        return;
+      }
+      habilitandoCamara = true;
+      activar.disabled = true;
+      try {
+        const solicitado = await navigator.mediaDevices.getUserMedia({
+          video: { width: { ideal: 1280 }, height: { ideal: 720 } },
+          audio: false,
+        });
+        if (campo("movimiento").value !== "entrada") {
+          solicitado.getTracks().forEach((pista) => pista.stop());
+          return;
+        }
+        flujo = solicitado;
+        vista.srcObject = flujo;
+        vista.hidden = false;
+        await vista.play();
+        if (flujo === solicitado) activar.textContent = "Detener cámara";
+      } catch {
+        detenerCamara();
+        mostrar("CERRADA", "No se pudo abrir la webcam. Revisa los permisos del navegador");
+      } finally {
+        habilitandoCamara = false;
+        actualizarBotones();
+      }
+    });
+
+    vista.addEventListener("playing", actualizarBotones);
+    function actualizarBotones() {
+      boton.disabled = procesando;
+      activar.disabled = procesando || habilitandoCamara;
+      capturar.disabled = procesando || !flujo || !vista.videoWidth;
+    }
+
+    function prepararImagen(imagen, nombre) {
+      const datos = new FormData();
+      datos.append("imagen", imagen, nombre);
+      datos.append("sede_id", campo("sede").value);
+      return datos;
+    }
+
     function mostrar(estado, detalle) {
       campo("barrera").dataset.estado = estado;
       campo("barrera").textContent = estado.replaceAll("_", " ");
       campo("detalle").textContent = detalle;
     }
-    formulario.addEventListener("submit", async (evento) => {
-      evento.preventDefault();
-      boton.disabled = true;
+    async function enviar(ruta, body, tipoContenido) {
+      procesando = true;
+      actualizarBotones();
       mostrar("CERRADA", "Procesando lectura…");
       const headers = { Authorization: "Bearer " + campo("token").value.trim() };
-      const sede = campo("sede").valueAsNumber;
-      const movimiento = campo("movimiento").value;
-      const imagen = movimiento === "entrada" ? campo("imagen").files[0] : undefined;
-      let ruta = "/api/v1/carril/" + movimiento;
-      let body;
-      if (imagen) {
-        ruta += "/imagen";
-        body = new FormData();
-        body.append("imagen", imagen);
-        body.append("sede_id", sede);
-      } else {
-        headers["Content-Type"] = "application/json";
-        const datos = { placa: campo("placa").value, sede_id: sede };
-        if (movimiento === "entrada") datos.confianza = campo("confianza").valueAsNumber;
-        body = JSON.stringify(datos);
-      }
+      if (tipoContenido) headers["Content-Type"] = tipoContenido;
       try {
         const respuesta = await fetch(ruta, { method: "POST", headers, body });
         if (!respuesta.ok) {
@@ -85,12 +144,49 @@
           return;
         }
         const datos = await respuesta.json();
-        mostrar(datos.barrera, datos.motivo + " · " + datos.placa + " · Evento " + datos.evento_id);
+        const placa = datos.placa || "Placa no detectada";
+        const confianza = datos.confianza === undefined ? "" : " · Confianza " + datos.confianza.toFixed(2);
+        mostrar(datos.barrera, datos.motivo + " · " + placa + confianza + " · Evento " + datos.evento_id);
       } catch {
         mostrar("CERRADA", "No se pudo comunicar con la API");
       } finally {
-        boton.disabled = false;
+        procesando = false;
+        actualizarBotones();
       }
+    }
+
+    capturar.addEventListener("click", () => {
+      if (!campo("token").reportValidity() || !campo("sede").reportValidity()) return;
+      if (procesando || !flujo || !vista.videoWidth) return;
+      procesando = true;
+      actualizarBotones();
+      const lienzo = document.createElement("canvas");
+      lienzo.width = vista.videoWidth;
+      lienzo.height = vista.videoHeight;
+      lienzo.getContext("2d").drawImage(vista, 0, 0);
+      lienzo.toBlob((imagen) => {
+        if (imagen) {
+          enviar("/api/v1/carril/entrada/imagen", prepararImagen(imagen, "captura.jpg"));
+        } else {
+          procesando = false;
+          actualizarBotones();
+          mostrar("CERRADA", "No se pudo capturar la foto");
+        }
+      }, "image/jpeg", 0.9);
+    });
+
+    formulario.addEventListener("submit", (evento) => {
+      evento.preventDefault();
+      if (procesando) return;
+      const movimiento = campo("movimiento").value;
+      const imagen = movimiento === "entrada" ? campo("imagen").files[0] : undefined;
+      if (imagen) {
+        enviar("/api/v1/carril/entrada/imagen", prepararImagen(imagen, imagen.name));
+        return;
+      }
+      const datos = { placa: campo("placa").value, sede_id: campo("sede").valueAsNumber };
+      if (movimiento === "entrada") datos.confianza = campo("confianza").valueAsNumber;
+      enviar("/api/v1/carril/" + movimiento, JSON.stringify(datos), "application/json");
     });
   </script>
 </body>

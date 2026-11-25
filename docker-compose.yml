@@ -26,6 +26,10 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Define POSTGRES_PASSWORD en .env}
       JWT_SECRET: ${JWT_SECRET:-}
       UMBRAL_CONFIANZA: ${UMBRAL_CONFIANZA:-0.80}
+      LECTOR_PLACAS: ${LECTOR_PLACAS:-camara}
+      EASYOCR_MODULE_PATH: /var/cache/easyocr
+    volumes:
+      - easyocr_modelos:/var/cache/easyocr
     ports:
       - "127.0.0.1:8000:8000"
     depends_on:
@@ -40,3 +44,4 @@ services:
 
 volumes:
   postgres_data:
+  easyocr_modelos:
