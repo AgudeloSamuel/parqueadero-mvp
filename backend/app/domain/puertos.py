@@ -1,20 +1,9 @@
-"""Contratos (interfaces) del motor de cobro: HU-04, HU-05 y HU-09.
-
-Siguen el mismo estilo que `ServicioCobroEntrada` en `domain/ingreso.py` (Protocol):
-el dominio define QUÉ necesita y la infraestructura (base de datos, pagos) lo implementa.
-Principio de inversión de dependencias (D de SOLID): el cálculo del cobro no depende
-de SQLAlchemy ni de FastAPI, por eso se puede probar con versiones falsas (fakes).
-
-Para el ingreso (HU-02), el contrato que usa Isaac es `ServicioCobroEntrada`
-(en `domain/ingreso.py`); el motor de cobro de la HU-04 lo implementará.
-"""
 from __future__ import annotations
 
-from datetime import date
-from decimal import Decimal
+from datetime import date, datetime
 from typing import TYPE_CHECKING, Protocol
 
-if TYPE_CHECKING: 
+if TYPE_CHECKING:
     from app.domain.cobro import Cobro
     from app.domain.pago import Pago
     from app.domain.tarifa import Tarifa
@@ -24,6 +13,8 @@ class RepositorioCobros(Protocol):
     """Guarda y busca cobros. Un solo cobro por placa, sede y día operativo (F-03)."""
 
     def buscar_del_dia(self, placa: str, sede_id: int, dia: date) -> Cobro | None: ...
+
+    def por_id(self, cobro_id: int) -> Cobro | None: ...
 
     def guardar(self, cobro: Cobro) -> Cobro: ...
 
@@ -41,6 +32,9 @@ class AdministracionTarifas(Protocol):
 
 
 class PasarelaPago(Protocol):
-    """Pago idempotente: la misma clave no crea un segundo pago (F-04)."""
+    """Adapter del medio de pago (HU-05: efectivo). Idempotente: la misma clave no crea
+    un segundo pago (F-04). Al pagar, el cobro pasa a PAGADO en la misma operación."""
 
-    def pagar(self, cobro_id: int, valor: Decimal, clave_idempotencia: str) -> Pago: ...
+    def pagar(self, cobro: Cobro, clave_idempotencia: str, fecha_hora: datetime) -> Pago: ...
+
+    def buscar_por_clave(self, clave_idempotencia: str) -> Pago | None: ...
