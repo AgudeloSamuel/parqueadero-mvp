@@ -35,7 +35,7 @@ class ValidarConfianza:
         self.umbral = umbral
 
     def __call__(self, lectura: LecturaPlaca, fecha_hora: datetime) -> Decision | None:
-        if lectura.placa is not None and lectura.confianza < self.umbral:
+        if lectura.validada_por is None and lectura.placa is not None and lectura.confianza < self.umbral:
             return Decision("PENDIENTE_VALIDACION", "Confianza insuficiente")
         return None
 
@@ -65,16 +65,22 @@ class RegistrarIngreso:
         cobros: ServicioCobroEntrada,
         validaciones: tuple[Callable[[LecturaPlaca, datetime], Decision | None], ...],
         validar_cupo: ValidarCupo,
+        bloquear_cupo: Callable[[TipoVehiculo], int],
     ) -> None:
         self.guardar = guardar
         self.ahora = ahora
         self.cobros = cobros
         self.validaciones = validaciones
         self.validar_cupo = validar_cupo
+        self.bloquear_cupo = bloquear_cupo
 
-    def ejecutar(self, lectura: LecturaPlaca) -> ResultadoIngreso:
+    def ejecutar(
+        self, lectura: LecturaPlaca, *, guardar: Callable[[EventoEntrada], int] | None = None
+    ) -> ResultadoIngreso:
         placa = lectura.placa
         tipo = clasificar_placa(placa) if placa is not None else None
+        if tipo is not None:
+            self.bloquear_cupo(tipo)
         fecha_hora = self.ahora()
         decision = self._evaluar(lectura, fecha_hora)
         cobro = None
@@ -85,7 +91,7 @@ class RegistrarIngreso:
             else:
                 decision = rechazo
         evento = EventoEntrada(lectura, fecha_hora, tipo, decision.barrera, decision.motivo)
-        return ResultadoIngreso(self.guardar(evento), evento, cobro)
+        return ResultadoIngreso((guardar or self.guardar)(evento), evento, cobro)
 
     def _evaluar(self, lectura: LecturaPlaca, fecha_hora: datetime) -> Decision:
         for validar in self.validaciones:
@@ -94,4 +100,6 @@ class RegistrarIngreso:
                 return decision
         if lectura.placa is None:
             return Decision("PENDIENTE_VALIDACION", "No se encontró una placa válida en la imagen")
-        return Decision("ABIERTA", "Ingreso registrado")
+        return Decision(
+            "ABIERTA", "Lectura manual validada" if lectura.validada_por else "Ingreso registrado"
+        )

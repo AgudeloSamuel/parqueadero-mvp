@@ -30,7 +30,9 @@ class CuposSQL:
         return capacidad
 
     def hay_cupo(self, sede_id: int, tipo: TipoVehiculo) -> bool:
-        capacidad = self.bloquear(tipo)
+        capacidad = self.sesion.execute(
+            select(CupoDB.capacidad).where(CupoDB.tipo_vehiculo == tipo)
+        ).scalar_one()
         return self._ocupacion(sede_id).get(tipo, 0) < capacidad
 
     def disponibles(self, sede_id: int) -> list[Disponibilidad]:
@@ -45,12 +47,14 @@ class CuposSQL:
         return disponibilidad
 
     def _ocupacion(self, sede_id: int) -> dict[str, int]:
+        fecha_movimiento = func.coalesce(EventoDB.validada_en, EventoDB.fecha_hora)
         ultimo = (
             select(
                 EventoDB.tipo,
                 EventoDB.tipo_vehiculo,
                 func.row_number().over(
-                    partition_by=EventoDB.placa, order_by=EventoDB.id.desc()
+                    partition_by=EventoDB.placa,
+                    order_by=(fecha_movimiento.desc(), EventoDB.id.desc()),
                 ).label("orden"),
             )
             .where(

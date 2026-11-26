@@ -26,6 +26,7 @@ class LecturaPlaca:
     placa: str | None
     confianza: float
     sede_id: int
+    validada_por: str | None = None
 
 
 @dataclass(frozen=True)
