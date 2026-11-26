@@ -28,16 +28,16 @@ def motor(tmp_path, monkeypatch):
     monkeypatch.setattr(db, "motor_db", lambda: motor)
     try:
         config = Path(__file__).resolve().parents[1] / "alembic.ini"
-        command.upgrade(Config(str(config)), "0005_lectura_sin_placa")
+        command.upgrade(Config(str(config)), "0006_cupos")
         # Los movimientos existentes también deben contar después de actualizar la base.
         with Session(motor) as sesion, sesion.begin():
-            sesion.add_all([
-                db.EventoDB(
+            sesion.execute(db.EventoDB.__table__.insert(), [
+                dict(
                     tipo="ENTRADA", placa=f"ABC{indice:03}", confianza=0.95, sede_id=1,
                     fecha_hora=AHORA, tipo_vehiculo="CARRO", barrera="ABIERTA",
                     motivo="Ingreso registrado",
                 )
-                for indice in range(9)
+                for indice in range(69)
             ])
         command.upgrade(Config(str(config)), "head")
         yield motor
@@ -78,50 +78,50 @@ def cupos(cliente, sede=1):
     }
 
 
-def test_nueve_de_diez_permite_entrada(cliente):
-    assert cupos(cliente)["CARRO"] == (10, 9, 1)
-    assert ingresar(cliente, "ABC009")["barrera"] == "ABIERTA"
-    assert cupos(cliente)["CARRO"] == (10, 10, 0)
+def test_sesenta_y_nueve_de_setenta_permite_entrada(cliente):
+    assert cupos(cliente)["CARRO"] == (70, 69, 1)
+    assert ingresar(cliente, "ABC069")["barrera"] == "ABIERTA"
+    assert cupos(cliente)["CARRO"] == (70, 70, 0)
 
 
-def test_diez_de_diez_devuelve_lleno_sin_cobrar(cliente, motor):
-    ingresar(cliente, "ABC009")
-    lleno = ingresar(cliente, "ABC010")
+def test_setenta_de_setenta_devuelve_lleno_sin_cobrar(cliente, motor):
+    ingresar(cliente, "ABC069")
+    lleno = ingresar(cliente, "ABC070")
     assert lleno["barrera"] == "LLENO"
     assert "cobro" not in lleno
-    assert cupos(cliente)["CARRO"] == (10, 10, 0)
+    assert cupos(cliente)["CARRO"] == (70, 70, 0)
     with Session(motor) as sesion:
         assert sesion.get(db.EventoDB, lleno["evento_id"]).barrera == "LLENO"
-        assert sesion.scalar(select(db.CobroDB).where(db.CobroDB.placa == "ABC010")) is None
+        assert sesion.scalar(select(db.CobroDB).where(db.CobroDB.placa == "ABC070")) is None
 
 
 def test_tipos_y_sedes_tienen_ocupacion_independiente(cliente):
-    ingresar(cliente, "ABC009")
+    ingresar(cliente, "ABC069")
     assert ingresar(cliente, "ABC12A")["barrera"] == "ABIERTA"
-    assert cupos(cliente) == {"CARRO": (10, 10, 0), "MOTO": (10, 1, 9)}
-    assert ingresar(cliente, "ABC010", sede=2)["barrera"] == "ABIERTA"
-    assert cupos(cliente, sede=2) == {"CARRO": (10, 1, 9), "MOTO": (10, 0, 10)}
+    assert cupos(cliente) == {"CARRO": (70, 70, 0), "MOTO": (70, 1, 69)}
+    assert ingresar(cliente, "ABC070", sede=2)["barrera"] == "ABIERTA"
+    assert cupos(cliente, sede=2) == {"CARRO": (70, 1, 69), "MOTO": (70, 0, 70)}
 
 
 def test_salida_efectiva_libera_un_cupo_y_repetirla_no_libera_otro(cliente):
-    lleno = ingresar(cliente, "ABC009")
-    assert salir(cliente, "ABC009")["barrera"] == "CERRADA"
-    assert cupos(cliente)["CARRO"] == (10, 10, 0)
+    lleno = ingresar(cliente, "ABC069")
+    assert salir(cliente, "ABC069")["barrera"] == "CERRADA"
+    assert cupos(cliente)["CARRO"] == (70, 70, 0)
     pago = cliente.post(
         f"/api/v1/cobros/{lleno['cobro']['id']}/pagos",
         headers={"Idempotency-Key": "pago-cupo-01"},
     )
     assert pago.status_code == 201, pago.text
-    assert salir(cliente, "ABC009")["barrera"] == "ABIERTA"
-    assert cupos(cliente)["CARRO"] == (10, 9, 1)
-    assert salir(cliente, "ABC009")["barrera"] == "ABIERTA"
-    assert cupos(cliente)["CARRO"] == (10, 9, 1)
-    assert ingresar(cliente, "ABC010")["barrera"] == "ABIERTA"
+    assert salir(cliente, "ABC069")["barrera"] == "ABIERTA"
+    assert cupos(cliente)["CARRO"] == (70, 69, 1)
+    assert salir(cliente, "ABC069")["barrera"] == "ABIERTA"
+    assert cupos(cliente)["CARRO"] == (70, 69, 1)
+    assert ingresar(cliente, "ABC070")["barrera"] == "ABIERTA"
 
 
 def test_lectura_pendiente_no_ocupa_cupo(cliente):
-    assert ingresar(cliente, "ABC009", confianza=0.50)["barrera"] == "PENDIENTE_VALIDACION"
-    assert cupos(cliente)["CARRO"] == (10, 9, 1)
+    assert ingresar(cliente, "ABC069", confianza=0.50)["barrera"] == "PENDIENTE_VALIDACION"
+    assert cupos(cliente)["CARRO"] == (70, 69, 1)
 
 
 def test_si_falla_el_evento_se_revierte_el_cobro_y_el_cupo(cliente, motor, monkeypatch):
@@ -131,11 +131,11 @@ def test_si_falla_el_evento_se_revierte_el_cobro_y_el_cupo(cliente, motor, monke
     with monkeypatch.context() as cambios:
         cambios.setattr(carril, "guardar_entrada", fallo_de_guardado)
         with pytest.raises(RuntimeError, match="No se pudo guardar el evento"):
-            ingresar(cliente, "ABC009")
+            ingresar(cliente, "ABC069")
 
-    assert cupos(cliente)["CARRO"] == (10, 9, 1)
+    assert cupos(cliente)["CARRO"] == (70, 69, 1)
     with Session(motor) as sesion:
-        assert sesion.scalar(select(db.CobroDB).where(db.CobroDB.placa == "ABC009")) is None
+        assert sesion.scalar(select(db.CobroDB).where(db.CobroDB.placa == "ABC069")) is None
 
 
 def test_dos_ingresos_concurrentes_no_toman_el_mismo_cupo(cliente):
@@ -146,6 +146,6 @@ def test_dos_ingresos_concurrentes_no_toman_el_mismo_cupo(cliente):
         return ingresar(cliente, placa)["barrera"]
 
     with ThreadPoolExecutor(max_workers=2) as pool:
-        resultados = list(pool.map(intentar, ["ABC009", "ABC010"]))
+        resultados = list(pool.map(intentar, ["ABC069", "ABC070"]))
     assert sorted(resultados) == ["ABIERTA", "LLENO"]
-    assert cupos(cliente)["CARRO"] == (10, 10, 0)
+    assert cupos(cliente)["CARRO"] == (70, 70, 0)

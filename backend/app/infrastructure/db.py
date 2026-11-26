@@ -3,6 +3,7 @@ from datetime import date, datetime
 from functools import lru_cache
 
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     Date,
     DateTime,
@@ -12,6 +13,7 @@ from sqlalchemy import (
     String,
     UniqueConstraint,
     create_engine,
+    false,
 )
 from sqlalchemy.engine import URL, Engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
@@ -39,6 +41,10 @@ class EventoDB(Base):
     tipo_vehiculo: Mapped[str | None] = mapped_column(String(12))
     barrera: Mapped[str] = mapped_column(String(24))
     motivo: Mapped[str] = mapped_column(String(160))
+    lectura_manual: Mapped[bool] = mapped_column(Boolean, server_default=false())
+    validada_por: Mapped[str | None] = mapped_column(String(100))
+    validada_en: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    placa_leida: Mapped[str | None] = mapped_column(String(20))
 
 
 class CupoDB(Base):

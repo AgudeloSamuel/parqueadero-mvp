@@ -46,6 +46,11 @@
   </form>
   <output id="barrera" data-estado="CERRADA" aria-live="polite">CERRADA</output>
   <p id="detalle" aria-live="polite"></p>
+  <section aria-labelledby="titulo-pendientes">
+    <h2 id="titulo-pendientes">Lecturas pendientes</h2>
+    <p id="estado-pendientes" aria-live="polite">Autoriza al operador para consultar las lecturas.</p>
+    <ul id="pendientes"></ul>
+  </section>
   <script>
     const campo = (id) => document.getElementById(id);
     const formulario = campo("entrada");
@@ -57,6 +62,78 @@
     let procesando = false;
     let habilitandoCamara = false;
     let consultaCupos = 0;
+    let consultaPendientes = 0;
+
+    async function actualizarPendientes() {
+      const consulta = ++consultaPendientes;
+      const lista = campo("pendientes");
+      const estado = campo("estado-pendientes");
+      const token = campo("token").value.trim();
+      const sede = campo("sede");
+      if (!token || !sede.validity.valid) {
+        lista.replaceChildren();
+        estado.textContent = "Ingresa el token de operador y una sede para consultar las lecturas.";
+        return;
+      }
+      const headers = { Authorization: "Bearer " + token };
+      try {
+        const respuesta = await fetch("/api/v1/carril/pendientes?sede_id=" + sede.valueAsNumber, {
+          headers, cache: "no-store",
+        });
+        if (!respuesta.ok) throw new Error("Consulta fallida");
+        const lecturas = await respuesta.json();
+        if (consulta !== consultaPendientes) return;
+        lista.replaceChildren(...lecturas.map((lectura) => filaPendiente(lectura, headers)));
+        estado.textContent = lecturas.length ? "" : "No hay lecturas pendientes.";
+      } catch {
+        if (consulta !== consultaPendientes) return;
+        lista.replaceChildren();
+        estado.textContent = "No se pudieron consultar las lecturas pendientes.";
+      }
+    }
+
+    function filaPendiente(lectura, headers) {
+      const fila = document.createElement("li");
+      const formulario = document.createElement("form");
+      const etiqueta = document.createElement("label");
+      const placa = document.createElement("input");
+      const boton = document.createElement("button");
+      const mensaje = document.createElement("p");
+      etiqueta.textContent = "Evento " + lectura.evento_id + " · " +
+        (lectura.placa || "Sin placa detectada") + " · Confianza " + lectura.confianza.toFixed(2);
+      placa.value = lectura.placa || "";
+      placa.required = true;
+      placa.maxLength = 80;
+      boton.textContent = "Validar placa";
+      mensaje.setAttribute("aria-live", "polite");
+      etiqueta.append(placa);
+      formulario.append(etiqueta, boton, mensaje);
+      fila.append(formulario);
+      formulario.addEventListener("submit", async (evento) => {
+        evento.preventDefault();
+        boton.disabled = true;
+        mensaje.textContent = "";
+        try {
+          const respuesta = await fetch("/api/v1/carril/eventos/" + lectura.evento_id + "/validar", {
+            method: "POST",
+            headers: { ...headers, "Content-Type": "application/json" },
+            body: JSON.stringify({ placa: placa.value }),
+          });
+          const datos = await respuesta.json();
+          if (!respuesta.ok) {
+            mensaje.textContent = typeof datos.detail === "string" ? datos.detail : "Revisa la placa.";
+            return;
+          }
+          mostrar(datos.barrera, datos.motivo + " · " + datos.placa + " · Validó " + datos.validada_por);
+          await Promise.all([actualizarPendientes(), actualizarCupos()]);
+        } catch {
+          mensaje.textContent = "No se pudo validar la placa.";
+        } finally {
+          boton.disabled = false;
+        }
+      });
+      return fila;
+    }
 
     async function actualizarCupos() {
       const consulta = ++consultaCupos;
@@ -85,6 +162,8 @@
 
     campo("token").addEventListener("change", actualizarCupos);
     campo("sede").addEventListener("change", actualizarCupos);
+    campo("token").addEventListener("change", actualizarPendientes);
+    campo("sede").addEventListener("change", actualizarPendientes);
 
     function detenerCamara() {
       flujo?.getTracks().forEach((pista) => pista.stop());
@@ -178,7 +257,7 @@
         const placa = datos.placa || "Placa no detectada";
         const confianza = datos.confianza === undefined ? "" : " · Confianza " + datos.confianza.toFixed(2);
         mostrar(datos.barrera, datos.motivo + " · " + placa + confianza + " · Evento " + datos.evento_id);
-        await actualizarCupos();
+        await Promise.all([actualizarCupos(), actualizarPendientes()]);
       } catch {
         mostrar("CERRADA", "No se pudo comunicar con la API");
       } finally {

@@ -1,4 +1,5 @@
 import os
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 import bcrypt
@@ -40,11 +41,20 @@ def emitir_token(usuario: Usuario) -> str:
     )
 
 
-def leer_rol(token: str) -> Rol:
+@dataclass(frozen=True)
+class Identidad:
+    username: str
+    rol: Rol
+
+
+def leer_identidad(token: str) -> Identidad:
     datos = jwt.decode(
         token,
         clave_jwt(),
         algorithms=[ALGORITMO],
         options={"require_exp": True, "require_sub": True},
     )
-    return Rol(datos.get("rol"))
+    username = datos["sub"]
+    if not username.strip() or len(username) > 100:
+        raise ValueError("Usuario del token inválido")
+    return Identidad(username, Rol(datos.get("rol")))

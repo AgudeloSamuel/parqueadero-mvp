@@ -6,11 +6,12 @@ from typing import Annotated, Literal
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi import Path as ParametroRuta
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.api.dependencias import requiere_rol
+from app.api.dependencias import IdentidadActual, requiere_rol
 from app.application.estado_salida import ConsultaSalida
 from app.application.generar_cobro import ServicioCobro
 from app.application.registrar_ingreso import (
@@ -21,14 +22,21 @@ from app.application.registrar_ingreso import (
     ValidarHorario,
 )
 from app.application.registrar_salida import RegistrarSalida
-from app.domain.ingreso import CobroEntrada, LecturaInvalida, TipoVehiculo
+from app.domain.ingreso import CobroEntrada, LecturaInvalida, LecturaPlaca, TipoVehiculo
 from app.domain.tarifa import TarifaPorFranja
 from app.domain.usuario import Rol
+from app.domain.vehiculo import normalizar_placa
 from app.infrastructure import db
 from app.infrastructure.cobros import ConsultaTarifasSQL, RepositorioCobrosSQL
 from app.infrastructure.cupos import CuposSQL, Disponibilidad
 from app.infrastructure.entradas import ultima_entrada_sin_salida
-from app.infrastructure.eventos import guardar_entrada, guardar_salida
+from app.infrastructure.eventos import (
+    bloquear_pendiente,
+    consultar_pendientes,
+    guardar_entrada,
+    guardar_salida,
+    resolver_pendiente,
+)
 from app.infrastructure.lectores import FabricaLector, LectorCamaraDesactivado, OCRNoDisponible
 
 router = APIRouter(prefix="/carril", tags=["Carril"])
@@ -54,6 +62,22 @@ class EntradaRegistrada(BaseModel):
     barrera: Literal["ABIERTA", "CERRADA", "LLENO", "PENDIENTE_VALIDACION"]
     motivo: str
     cobro: CobroEntrada | None = None
+    lectura_manual: bool = False
+    validada_por: str | None = None
+    validada_en: datetime | None = None
+    placa_leida: str | None = None
+
+
+class LecturaPendiente(BaseModel):
+    evento_id: int
+    placa: str | None
+    confianza: float
+    sede_id: int
+    fecha_hora: datetime
+
+
+class ConfirmacionPlaca(BaseModel):
+    placa: str = Field(min_length=1, max_length=80)
 
 
 class SolicitudSalida(BaseModel):
@@ -102,6 +126,7 @@ def consultar_cupos(
 
 
 def obtener_registro(sesion: SesionCarril) -> RegistrarIngreso:
+    cupos = CuposSQL(sesion)
     return RegistrarIngreso(
         guardar=lambda evento: guardar_entrada(evento, sesion),
         ahora=ahora_bogota,
@@ -110,11 +135,49 @@ def obtener_registro(sesion: SesionCarril) -> RegistrarIngreso:
             ValidarHorario(),
             ValidarConfianza(float(os.environ.get("UMBRAL_CONFIANZA", "0.80"))),
         ),
-        validar_cupo=ValidarCupo(CuposSQL(sesion).hay_cupo),
+        validar_cupo=ValidarCupo(cupos.hay_cupo),
+        bloquear_cupo=cupos.bloquear,
     )
 
 
 Registro = Annotated[RegistrarIngreso, Depends(obtener_registro)]
+
+
+@router.get("/pendientes", dependencies=operador)
+def lecturas_pendientes(
+    sesion: SesionCarril,
+    sede_id: Annotated[int | None, Query(gt=0, le=2_147_483_647)] = None,
+) -> list[LecturaPendiente]:
+    return [
+        LecturaPendiente(
+            evento_id=fila.id, placa=fila.placa, confianza=fila.confianza,
+            sede_id=fila.sede_id, fecha_hora=fila.fecha_hora,
+        )
+        for fila in consultar_pendientes(sesion, sede_id)
+    ]
+
+
+@router.post("/eventos/{evento_id}/validar", dependencies=operador)
+def validar_placa(
+    evento_id: Annotated[int, ParametroRuta(gt=0, le=2_147_483_647)],
+    datos: ConfirmacionPlaca,
+    identidad: IdentidadActual,
+    sesion: SesionCarril,
+    registro: Registro,
+) -> EntradaRegistrada:
+    fila = bloquear_pendiente(evento_id, sesion)
+    if fila is None:
+        if sesion.get(db.EventoDB, evento_id) is None:
+            raise HTTPException(status_code=404, detail="Evento no encontrado")
+        raise HTTPException(status_code=409, detail="El evento ya no está pendiente de validación")
+    lectura = LecturaPlaca(
+        normalizar_placa(datos.placa), fila.confianza, fila.sede_id, identidad.username
+    )
+    try:
+        resultado = registro.ejecutar(lectura, guardar=lambda evento: resolver_pendiente(fila, evento))
+    except LecturaInvalida as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return respuesta(resultado, placa_leida=fila.placa_leida)
 
 
 def obtener_registro_salida(sesion: SesionCarril) -> RegistrarSalida:
@@ -150,7 +213,9 @@ def registrar_salida(
     )
 
 
-def respuesta(resultado: ResultadoIngreso) -> EntradaRegistrada:
+def respuesta(
+    resultado: ResultadoIngreso, *, placa_leida: str | None = None
+) -> EntradaRegistrada:
     evento = resultado.evento
     return EntradaRegistrada(
         evento_id=resultado.evento_id,
@@ -162,6 +227,10 @@ def respuesta(resultado: ResultadoIngreso) -> EntradaRegistrada:
         barrera=evento.barrera,
         motivo=evento.motivo,
         cobro=resultado.cobro,
+        lectura_manual=evento.lectura.validada_por is not None,
+        validada_por=evento.lectura.validada_por,
+        validada_en=evento.fecha_hora if evento.lectura.validada_por is not None else None,
+        placa_leida=placa_leida,
     )
 
 
