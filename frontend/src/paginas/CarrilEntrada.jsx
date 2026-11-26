@@ -1,20 +1,22 @@
 import { useState } from "react";
-import { Image, Keyboard } from "@phosphor-icons/react";
+import { Camera, Image, Keyboard } from "@phosphor-icons/react";
 import { api } from "../api/cliente.js";
+import Camara from "../componentes/Camara.jsx";
 import { Historial, Resultado } from "../componentes/Resultado.jsx";
 import { pesos } from "../formato.js";
 
 const SEDE_ID = Number(import.meta.env.VITE_SEDE_ID ?? 1);
 
 const MODOS = [
+  { id: "camara", nombre: "Cámara", Icono: Camera },
   { id: "foto", nombre: "Foto", Icono: Image },
   { id: "manual", nombre: "Manual", Icono: Keyboard },
 ];
 
-// HU-02: registrar el ingreso por placa, desde una foto (la lee el OCR del backend)
-// o con el simulador. La cámara del PC se agrega con la HU-13.
+// HU-02 y HU-13: registrar el ingreso por placa. La placa se lee con la cámara
+// del PC (el OCR del backend lee la foto), desde una imagen guardada o con el simulador.
 export default function CarrilEntrada() {
-  const [modo, setModo] = useState("manual");
+  const [modo, setModo] = useState("camara");
   const [placa, setPlaca] = useState("");
   const [confianza, setConfianza] = useState("0.95");
   const [imagen, setImagen] = useState(null);
@@ -77,6 +79,8 @@ export default function CarrilEntrada() {
               ))}
             </div>
           </div>
+
+          {modo === "camara" && <Camara onCaptura={porImagen} deshabilitado={cargando} />}
 
           {modo === "foto" && (
             <div className="pila">
