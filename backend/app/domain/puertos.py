@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, time
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
@@ -10,7 +10,7 @@ if TYPE_CHECKING:
 
 
 class RepositorioCobros(Protocol):
-    """Guarda y busca cobros. Un solo cobro por placa, sede y día operativo (F-03)."""
+    
 
     def buscar_del_dia(self, placa: str, sede_id: int, dia: date) -> Cobro | None: ...
 
@@ -20,20 +20,28 @@ class RepositorioCobros(Protocol):
 
 
 class ConsultaTarifas(Protocol):
-    """Solo lectura: la usa el carril (I de SOLID: separada de la administración)."""
+   
 
     def vigente(self, sede_id: int, tipo: str, franja: str) -> Tarifa: ...
 
 
-class AdministracionTarifas(Protocol):
-    """Escritura: la usa el administrador (HU-09)."""
+class HorarioFranjas(Protocol):
+  
 
-    def guardar(self, tarifa: Tarifa) -> Tarifa: ...
+    def inicio_nocturna(self) -> time: ...
+
+
+class AdministracionTarifas(Protocol):
+   
+
+    def listar(self) -> list[Tarifa]: ...
+
+    def actualizar(self, tipo: str, diurna: int, nocturna: int) -> list[Tarifa]: ...
+
+    def cambiar_inicio_nocturna(self, inicio: time) -> None: ...
 
 
 class PasarelaPago(Protocol):
-    """Adapter del medio de pago (HU-05: efectivo). Idempotente: la misma clave no crea
-    un segundo pago (F-04). Al pagar, el cobro pasa a PAGADO en la misma operación."""
 
     def pagar(self, cobro: Cobro, clave_idempotencia: str, fecha_hora: datetime) -> Pago: ...
 

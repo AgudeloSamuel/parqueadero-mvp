@@ -100,6 +100,11 @@ class PagoDB(Base):
     clave_idempotencia: Mapped[str] = mapped_column(String(100))
     fecha_hora: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
+class ParametroDB(Base):
+    __tablename__ = "parametros"
+
+    clave: Mapped[str] = mapped_column(String(40), primary_key=True)
+    valor: Mapped[str] = mapped_column(String(40))
 
 class UsuarioDB(Base):
     __tablename__ = "usuarios"
