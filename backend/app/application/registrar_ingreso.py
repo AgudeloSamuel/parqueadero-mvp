@@ -8,13 +8,14 @@ from app.domain.ingreso import (
     EventoEntrada,
     LecturaPlaca,
     ServicioCobroEntrada,
+    TipoVehiculo,
     clasificar_placa,
 )
 
 
 @dataclass(frozen=True)
 class Decision:
-    barrera: Literal["ABIERTA", "CERRADA", "PENDIENTE_VALIDACION"]
+    barrera: Literal["ABIERTA", "CERRADA", "LLENO", "PENDIENTE_VALIDACION"]
     motivo: str
 
 
@@ -39,6 +40,16 @@ class ValidarConfianza:
         return None
 
 
+class ValidarCupo:
+    def __init__(self, hay_cupo: Callable[[int, TipoVehiculo], bool]) -> None:
+        self.hay_cupo = hay_cupo
+
+    def __call__(self, sede_id: int, tipo: TipoVehiculo) -> Decision | None:
+        if not self.hay_cupo(sede_id, tipo):
+            return Decision("LLENO", f"No hay cupos disponibles para {tipo.lower()}s")
+        return None
+
+
 @dataclass(frozen=True)
 class ResultadoIngreso:
     evento_id: int
@@ -53,11 +64,13 @@ class RegistrarIngreso:
         ahora: Callable[[], datetime],
         cobros: ServicioCobroEntrada,
         validaciones: tuple[Callable[[LecturaPlaca, datetime], Decision | None], ...],
+        validar_cupo: ValidarCupo,
     ) -> None:
         self.guardar = guardar
         self.ahora = ahora
         self.cobros = cobros
         self.validaciones = validaciones
+        self.validar_cupo = validar_cupo
 
     def ejecutar(self, lectura: LecturaPlaca) -> ResultadoIngreso:
         placa = lectura.placa
@@ -66,9 +79,11 @@ class RegistrarIngreso:
         decision = self._evaluar(lectura, fecha_hora)
         cobro = None
         if decision.barrera == "ABIERTA" and placa is not None and tipo is not None:
-            cobro = self.cobros.generar_o_reutilizar(
-                placa, tipo, lectura.sede_id, fecha_hora
-            )
+            rechazo = self.validar_cupo(lectura.sede_id, tipo)
+            if rechazo is None:
+                cobro = self.cobros.generar_o_reutilizar(placa, tipo, lectura.sede_id, fecha_hora)
+            else:
+                decision = rechazo
         evento = EventoEntrada(lectura, fecha_hora, tipo, decision.barrera, decision.motivo)
         return ResultadoIngreso(self.guardar(evento), evento, cobro)
 

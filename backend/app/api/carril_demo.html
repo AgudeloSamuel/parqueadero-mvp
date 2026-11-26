@@ -14,6 +14,7 @@
     [data-estado=ABIERTA] { background: #dcfce7; color: #166534; }
     [data-estado=PENDIENTE_VALIDACION] { background: #fef3c7; color: #78350f; }
     [data-estado=CERRADA] { background: #fee2e2; color: #991b1b; }
+    [data-estado=LLENO] { background: #fee2e2; color: #991b1b; }
     #detalle { white-space: pre-wrap; overflow-wrap: anywhere; }
     [data-estado=CERRADA] + #detalle { color: #991b1b; }
   </style>
@@ -29,6 +30,7 @@
     </label>
     <label>Token de operador <input id="token" type="password" autocomplete="off" required></label>
     <label>Sede <input id="sede" type="number" min="1" max="2147483647" value="1" required></label>
+    <p id="cupos" aria-live="polite">Autoriza al operador para consultar los cupos.</p>
     <section id="camara">
       <button id="activar" type="button">Activar cámara</button>
       <video id="vista" aria-label="Vista en vivo de la webcam" autoplay muted playsinline hidden></video>
@@ -54,6 +56,35 @@
     let flujo;
     let procesando = false;
     let habilitandoCamara = false;
+    let consultaCupos = 0;
+
+    async function actualizarCupos() {
+      const consulta = ++consultaCupos;
+      const token = campo("token").value.trim();
+      const sede = campo("sede");
+      if (!token || !sede.validity.valid) {
+        campo("cupos").textContent = "Ingresa el token de operador y una sede para consultar los cupos.";
+        return;
+      }
+      try {
+        const respuesta = await fetch("/api/v1/carril/cupos?sede_id=" + sede.valueAsNumber, {
+          headers: { Authorization: "Bearer " + token },
+          cache: "no-store",
+        });
+        if (!respuesta.ok) throw new Error("Consulta de cupos fallida");
+        const cupos = await respuesta.json();
+        if (consulta !== consultaCupos) return;
+        const etiquetas = { CARRO: "Carros", MOTO: "Motos" };
+        campo("cupos").textContent = cupos.map(({ tipo_vehiculo, capacidad, disponibles }) =>
+          etiquetas[tipo_vehiculo] + ": " + disponibles + " de " + capacidad + " libres"
+        ).join(" · ");
+      } catch {
+        if (consulta === consultaCupos) campo("cupos").textContent = "No se pudieron consultar los cupos.";
+      }
+    }
+
+    campo("token").addEventListener("change", actualizarCupos);
+    campo("sede").addEventListener("change", actualizarCupos);
 
     function detenerCamara() {
       flujo?.getTracks().forEach((pista) => pista.stop());
@@ -147,6 +178,7 @@
         const placa = datos.placa || "Placa no detectada";
         const confianza = datos.confianza === undefined ? "" : " · Confianza " + datos.confianza.toFixed(2);
         mostrar(datos.barrera, datos.motivo + " · " + placa + confianza + " · Evento " + datos.evento_id);
+        await actualizarCupos();
       } catch {
         mostrar("CERRADA", "No se pudo comunicar con la API");
       } finally {

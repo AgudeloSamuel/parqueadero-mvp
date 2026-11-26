@@ -1,6 +1,7 @@
 """Implementaciones con base de datos de los contratos del cobro (patrón Repository)."""
 from __future__ import annotations
 
+from contextlib import contextmanager, nullcontext
 from datetime import date
 
 from sqlalchemy import select
@@ -27,8 +28,28 @@ def _a_dominio(fila: db.CobroDB) -> Cobro:
 
 
 class RepositorioCobrosSQL:
+    def __init__(self, sesion: Session | None = None) -> None:
+        self.sesion = sesion
+
+    @contextmanager
+    def _lectura(self):
+        if self.sesion is not None:
+            yield self.sesion
+        else:
+            with Session(db.motor_db()) as sesion:
+                yield sesion
+
+    @contextmanager
+    def _escritura(self):
+        if self.sesion is not None:
+            with self.sesion.begin_nested():
+                yield self.sesion
+        else:
+            with Session(db.motor_db()) as sesion, sesion.begin():
+                yield sesion
+
     def buscar_del_dia(self, placa: str, sede_id: int, dia: date) -> Cobro | None:
-        with Session(db.motor_db()) as sesion:
+        with self._lectura() as sesion:
             fila = sesion.scalars(
                 select(db.CobroDB).where(
                     db.CobroDB.placa == placa,
@@ -39,13 +60,13 @@ class RepositorioCobrosSQL:
             return None if fila is None else _a_dominio(fila)
 
     def por_id(self, cobro_id: int) -> Cobro | None:
-        with Session(db.motor_db()) as sesion:
+        with self._lectura() as sesion:
             fila = sesion.get(db.CobroDB, cobro_id)
             return None if fila is None else _a_dominio(fila)
 
     def guardar(self, cobro: Cobro) -> Cobro:
         try:
-            with Session(db.motor_db()) as sesion, sesion.begin():
+            with self._escritura() as sesion:
                 fila = db.CobroDB(
                     placa=cobro.placa,
                     sede_id=cobro.sede_id,
@@ -70,8 +91,12 @@ class RepositorioCobrosSQL:
 class ConsultaTarifasSQL:
     """Solo lectura. En el MVP las tarifas son las mismas para todas las sedes."""
 
+    def __init__(self, sesion: Session | None = None) -> None:
+        self.sesion = sesion
+
     def vigente(self, sede_id: int, tipo: str, franja: str) -> Tarifa:
-        with Session(db.motor_db()) as sesion:
+        contexto = nullcontext(self.sesion) if self.sesion is not None else Session(db.motor_db())
+        with contexto as sesion:
             fila = sesion.scalars(
                 select(db.TarifaDB).where(
                     db.TarifaDB.tipo_vehiculo == tipo, db.TarifaDB.franja == franja
