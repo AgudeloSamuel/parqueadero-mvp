@@ -1,5 +1,6 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import CarrilEntrada from "./paginas/CarrilEntrada.jsx";
+import CarrilSalida from "./paginas/CarrilSalida.jsx";
 import Login from "./paginas/Login.jsx";
 import Pendiente from "./paginas/Pendiente.jsx";
 import Plantilla from "./componentes/Plantilla.jsx";
@@ -20,7 +21,7 @@ export default function App() {
         <Route element={<RutaProtegida rol="OPERADOR" />}>
           <Route path="/entrada" element={<CarrilEntrada />} />
           <Route path="/caja" element={<Pendiente titulo="Caja" historia="la búsqueda de cobros por placa" />} />
-          <Route path="/salida" element={<Pendiente titulo="Carril de salida" historia="la HU-06" />} />
+          <Route path="/salida" element={<CarrilSalida />} />
           <Route path="/validacion" element={<Pendiente titulo="Validación manual" historia="la HU-07" />} />
         </Route>
         <Route element={<RutaProtegida rol="ADMIN" />}>

@@ -57,4 +57,6 @@ export const api = {
     formulario.append("sede_id", String(sedeId));
     return pedir("/carril/entrada/imagen", { metodo: "POST", cuerpo: formulario });
   },
+  registrarSalida: (placa, sedeId) =>
+    pedir("/carril/salida", { metodo: "POST", cuerpo: { placa, sede_id: sedeId } }),
 };
