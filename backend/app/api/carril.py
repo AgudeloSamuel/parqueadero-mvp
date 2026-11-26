@@ -37,7 +37,12 @@ from app.infrastructure.eventos import (
     guardar_salida,
     resolver_pendiente,
 )
-from app.infrastructure.lectores import FabricaLector, LectorCamaraDesactivado, OCRNoDisponible
+from app.infrastructure.lectores import (
+    FabricaLector,
+    LectorCamaraDesactivado,
+    OCRNoDisponible,
+)
+from app.infrastructure.tarifas import HorarioFranjasSQL
 
 router = APIRouter(prefix="/carril", tags=["Carril"])
 demo = APIRouter()
@@ -98,7 +103,7 @@ class SalidaRegistrada(BaseModel):
 
 def obtener_servicio_cobro(sesion: Session) -> ServicioCobro:
     """HU-04: cobro real. Cada tipo de vehículo tiene su estrategia de tarifa (Strategy)."""
-    por_franja = TarifaPorFranja(ConsultaTarifasSQL(sesion))
+    por_franja = TarifaPorFranja(ConsultaTarifasSQL(sesion), HorarioFranjasSQL(sesion))
     return ServicioCobro(
         repositorio=RepositorioCobrosSQL(sesion),
         estrategias={"CARRO": por_franja, "MOTO": por_franja},
