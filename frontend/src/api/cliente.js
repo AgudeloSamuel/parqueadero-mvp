@@ -49,4 +49,12 @@ export async function pedir(ruta, { metodo = "GET", cuerpo, encabezados = {} } =
 export const api = {
   login: (username, password) =>
     pedir("/auth/login", { metodo: "POST", cuerpo: { username, password } }),
+  registrarEntrada: (placa, confianza, sedeId) =>
+    pedir("/carril/entrada", { metodo: "POST", cuerpo: { placa, confianza, sede_id: sedeId } }),
+  registrarEntradaImagen: (archivo, sedeId) => {
+    const formulario = new FormData();
+    formulario.append("imagen", archivo);
+    formulario.append("sede_id", String(sedeId));
+    return pedir("/carril/entrada/imagen", { metodo: "POST", cuerpo: formulario });
+  },
 };
