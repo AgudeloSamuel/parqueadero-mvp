@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import nullcontext
 from datetime import datetime
 
 from sqlalchemy import select
@@ -8,9 +9,12 @@ from sqlalchemy.orm import Session
 from app.infrastructure import db
 
 
-def ultima_entrada_sin_salida(placa: str, sede_id: int) -> datetime | None:
+def ultima_entrada_sin_salida(
+    placa: str, sede_id: int, sesion: Session | None = None
+) -> datetime | None:
     """Hora de la entrada más reciente que todavía tiene una salida efectiva pendiente."""
-    with Session(db.motor_db()) as sesion:
+    contexto = nullcontext(sesion) if sesion is not None else Session(db.motor_db())
+    with contexto as sesion:
         ultimo = sesion.execute(
             select(db.EventoDB.tipo, db.EventoDB.fecha_hora)
             .where(

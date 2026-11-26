@@ -8,6 +8,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     String,
     UniqueConstraint,
     create_engine,
@@ -26,6 +27,7 @@ class EventoDB(Base):
     __tablename__ = "eventos"
     __table_args__ = (
         CheckConstraint("confianza BETWEEN 0 AND 1", name="ck_eventos_confianza"),
+        Index("ix_eventos_ocupacion", "sede_id", "tipo_vehiculo", "placa", "id"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -37,6 +39,16 @@ class EventoDB(Base):
     tipo_vehiculo: Mapped[str | None] = mapped_column(String(12))
     barrera: Mapped[str] = mapped_column(String(24))
     motivo: Mapped[str] = mapped_column(String(160))
+
+
+class CupoDB(Base):
+    __tablename__ = "cupos"
+    __table_args__ = (CheckConstraint("capacidad >= 0", name="ck_cupos_capacidad"),)
+
+    tipo_vehiculo: Mapped[str] = mapped_column(String(12), primary_key=True)
+    capacidad: Mapped[int]
+
+
 class TarifaDB(Base):
     __tablename__ = "tarifas"
     __table_args__ = (

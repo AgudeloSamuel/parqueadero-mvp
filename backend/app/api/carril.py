@@ -1,12 +1,14 @@
 import os
+from collections.abc import Iterator
 from datetime import datetime
 from pathlib import Path
 from typing import Annotated, Literal
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
 
 from app.api.dependencias import requiere_rol
 from app.application.estado_salida import ConsultaSalida
@@ -15,13 +17,16 @@ from app.application.registrar_ingreso import (
     RegistrarIngreso,
     ResultadoIngreso,
     ValidarConfianza,
+    ValidarCupo,
     ValidarHorario,
 )
 from app.application.registrar_salida import RegistrarSalida
 from app.domain.ingreso import CobroEntrada, LecturaInvalida, TipoVehiculo
 from app.domain.tarifa import TarifaPorFranja
 from app.domain.usuario import Rol
+from app.infrastructure import db
 from app.infrastructure.cobros import ConsultaTarifasSQL, RepositorioCobrosSQL
+from app.infrastructure.cupos import CuposSQL, Disponibilidad
 from app.infrastructure.entradas import ultima_entrada_sin_salida
 from app.infrastructure.eventos import guardar_entrada, guardar_salida
 from app.infrastructure.lectores import FabricaLector, LectorCamaraDesactivado, OCRNoDisponible
@@ -46,7 +51,7 @@ class EntradaRegistrada(BaseModel):
     sede_id: int
     fecha_hora: datetime
     tipo_vehiculo: TipoVehiculo | None
-    barrera: Literal["ABIERTA", "CERRADA", "PENDIENTE_VALIDACION"]
+    barrera: Literal["ABIERTA", "CERRADA", "LLENO", "PENDIENTE_VALIDACION"]
     motivo: str
     cobro: CobroEntrada | None = None
 
@@ -67,11 +72,11 @@ class SalidaRegistrada(BaseModel):
     motivo: str
 
 
-def obtener_servicio_cobro() -> ServicioCobro:
+def obtener_servicio_cobro(sesion: Session) -> ServicioCobro:
     """HU-04: cobro real. Cada tipo de vehículo tiene su estrategia de tarifa (Strategy)."""
-    por_franja = TarifaPorFranja(ConsultaTarifasSQL())
+    por_franja = TarifaPorFranja(ConsultaTarifasSQL(sesion))
     return ServicioCobro(
-        repositorio=RepositorioCobrosSQL(),
+        repositorio=RepositorioCobrosSQL(sesion),
         estrategias={"CARRO": por_franja, "MOTO": por_franja},
     )
 
@@ -80,26 +85,48 @@ def ahora_bogota() -> datetime:
     return datetime.now(ZoneInfo("America/Bogota"))
 
 
-def obtener_registro() -> RegistrarIngreso:
+def sesion_carril() -> Iterator[Session]:
+    with Session(db.motor_db()) as sesion, sesion.begin():
+        yield sesion
+
+
+SesionCarril = Annotated[Session, Depends(sesion_carril, scope="function")]
+
+
+@router.get("/cupos", dependencies=operador)
+def consultar_cupos(
+    sede_id: Annotated[int, Query(gt=0, le=2_147_483_647)],
+    sesion: SesionCarril,
+) -> list[Disponibilidad]:
+    return CuposSQL(sesion).disponibles(sede_id)
+
+
+def obtener_registro(sesion: SesionCarril) -> RegistrarIngreso:
     return RegistrarIngreso(
-        guardar=guardar_entrada,
+        guardar=lambda evento: guardar_entrada(evento, sesion),
         ahora=ahora_bogota,
-        cobros=obtener_servicio_cobro(),
+        cobros=obtener_servicio_cobro(sesion),
         validaciones=(
             ValidarHorario(),
             ValidarConfianza(float(os.environ.get("UMBRAL_CONFIANZA", "0.80"))),
         ),
+        validar_cupo=ValidarCupo(CuposSQL(sesion).hay_cupo),
     )
 
 
 Registro = Annotated[RegistrarIngreso, Depends(obtener_registro)]
 
 
-def obtener_registro_salida() -> RegistrarSalida:
+def obtener_registro_salida(sesion: SesionCarril) -> RegistrarSalida:
+    consulta = ConsultaSalida(
+        RepositorioCobrosSQL(sesion),
+        lambda placa, sede_id: ultima_entrada_sin_salida(placa, sede_id, sesion),
+    )
     return RegistrarSalida(
-        ConsultaSalida(RepositorioCobrosSQL(), ultima_entrada_sin_salida),
-        guardar_salida,
+        consulta,
+        lambda evento: guardar_salida(evento, sesion),
         ahora_bogota,
+        CuposSQL(sesion).bloquear,
     )
 
 
